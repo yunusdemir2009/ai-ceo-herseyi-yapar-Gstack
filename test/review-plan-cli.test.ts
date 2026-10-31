@@ -258,3 +258,58 @@ describe('gstack-review-plan: the scoped second pass (GSTA-152 D6)', () => {
     expect(run(r, [...pass2, '--range-base', rangeBase, '--depth-floor', 'full']).stdout).toMatch(/^NEXT: full \(a blocking finding was fixed and the diff is at full depth/m);
   });
 });
+
+describe('the first-pass Red Team cut reads the branch review log (GSTA-167 option a)', () => {
+  const LOG = path.join(import.meta.dir, '..', 'bin', 'gstack-review-log');
+  const NOTE = 'SKIP: red-team (first full pass; Round 7 no-loss)';
+  const RT = /^DISPATCH: red-team red-team effort=full$/m;
+  const big = () => repo({ 'src/a.ts': Array.from({ length: 210 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
+  // Value: protects=a /ship restarted after a stop on a branch whose review log already holds a pass plans the Red Team on its
+  //   first full pass, a branch with no records still takes the Round 7 cut, and an unreadable log keeps the Red Team;
+  //   fails_when=the cut reads only --pass/--last (a restart resets both) or a lookup failure drops the Red Team;
+  //   why_new=GSTA-167 option a; seam=bin/gstack-review-plan through lib/ship-budget reviewPaths and the real gstack-review-log
+  test('a restart on a branch with an earlier review row keeps the Red Team; no row takes the cut; an unreadable log keeps it', () => {
+    const r = big();
+    const first = run(r, []);
+    expect(first.stdout).toContain(NOTE);
+    expect(first.stdout).not.toMatch(RT);
+    expect(JSON.parse(run(r, ['--json']).stdout).reviewed_before).toBe(false);
+    const logged = spawnSync(LOG, ['{"skill":"review","timestamp":"2026-10-31T00:00:00Z","status":"clean","via":"ship","pass":1}'], { cwd: r.dir, encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: r.state } });
+    expect(logged.status, logged.stderr).toBe(0);
+    const restarted = run(r, []);
+    expect(restarted.stdout).toMatch(RT);
+    expect(restarted.stdout).not.toContain(NOTE);
+    expect(JSON.parse(run(r, ['--json']).stdout).reviewed_before).toBe(true);
+    const u = big();
+    const dir = path.join(u.state, 'projects');
+    expect(run(u, []).stdout).toContain(NOTE);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.writeFileSync(dir, 'not a directory');
+    const unread = run(u, []);
+    expect(unread.stdout).toMatch(RT);
+    expect(JSON.parse(run(u, ['--json']).stdout).reviewed_before).toBe(null);
+  }, 60_000);
+});
+
+describe('a review log of only malformed rows keeps the Red Team (GSTA-167 fail closed)', () => {
+  const LOG = path.join(import.meta.dir, '..', 'bin', 'gstack-review-log');
+  const NOTE = 'SKIP: red-team (first full pass; Round 7 no-loss)';
+  const RT = /^DISPATCH: red-team red-team effort=full$/m;
+  // Value: protects=a readable review log whose rows do not parse counts as unreadable, so the first full pass keeps the Red Team,
+  //   while an empty log still takes the cut; fails_when=a malformed row is skipped as absent; why_new=GSTA-167 Captain ruling
+  //   (fail closed on malformed rows); seam=bin/gstack-review-plan's review-log lookup
+  test('a log holding only malformed rows plans the Red Team; an empty log still takes the cut', () => {
+    const r = repo({ 'src/a.ts': Array.from({ length: 210 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n' });
+    const logged = spawnSync(LOG, ['{"skill":"review","timestamp":"2026-10-31T00:00:00Z","status":"clean","via":"ship","pass":1}'], { cwd: r.dir, encoding: 'utf8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: r.state } });
+    expect(logged.status, logged.stderr).toBe(0);
+    const projects = path.join(r.state, 'projects');
+    const file = path.join(projects, fs.readdirSync(projects)[0]!, 'feat-reviews.jsonl');
+    expect(fs.existsSync(file)).toBe(true);
+    fs.writeFileSync(file, '');
+    expect(run(r, []).stdout).toContain(NOTE);
+    fs.writeFileSync(file, '{"skill":"review","timestamp":\nnot json at all\n');
+    const torn = run(r, []);
+    expect(torn.stdout).toMatch(RT);
+    expect(torn.stdout).not.toContain(NOTE);
+  }, 60_000);
+});
