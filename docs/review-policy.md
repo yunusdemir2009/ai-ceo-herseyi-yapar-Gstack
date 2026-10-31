@@ -468,7 +468,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    `merged.jsonl` with the label as written (a JSON line's `severity`, or the most
    severe of a prose line's Critical, High, Medium, Low, P0-P3, FIXABLE or INVESTIGATE
    wherever they stand, headings and table rows included; a top-level list item under a
-   label-only heading takes the stronger of the two). A `Severity:` or `Blocks:` line
+   label-only heading takes the stronger of the two). Every label word counts, a reader's own
+   closing summary included ("I found nothing CRITICAL", "Neither finding is CRITICAL"): it
+   collects at its label and stays at that label in the judged set (GST-435). A `Severity:` or `Blocks:` line
    continues the finding above it until a list item, heading, bold paragraph opener or a
    second line for the same field starts another: `Severity` raises its label,
    `Blocks: yes` makes it CRITICAL and `Blocks: no` never lowers it; an inline
